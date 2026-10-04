@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from .. import models, schemas
 from ..database import get_db
-from ..status_utils import refresh_collection_record, get_bin_status_from_latest_collection
+from ..status_utils import compute_collection_status, get_bin_status_from_latest_collection
 
 router = APIRouter()
 
@@ -11,23 +11,18 @@ def get_bins(db: Session = Depends(get_db)):
     bins = db.query(models.GarbageBin).all()
     collections = db.query(models.CollectionRecord).all()
     latest_by_bin: dict[int, models.CollectionRecord] = {}
-    changed = False
 
     for record in collections:
-        if refresh_collection_record(record):
-            changed = True
+        status, delay_minutes = compute_collection_status(record)
+        record.status = status
+        record.delay_minutes = delay_minutes
         current = latest_by_bin.get(record.bin_id)
         if current is None or record.scheduled_date > current.scheduled_date:
             latest_by_bin[record.bin_id] = record
 
     for db_bin in bins:
         status = get_bin_status_from_latest_collection(db_bin, latest_by_bin.get(db_bin.id))
-        if db_bin.status != status:
-            db_bin.status = status
-            changed = True
-
-    if changed:
-        db.commit()
+        db_bin.status = status
     return bins
 
 @router.get("/bins/{id}", response_model=schemas.Bin)
@@ -41,15 +36,13 @@ def get_bin(id: int, db: Session = Depends(get_db)):
         .order_by(models.CollectionRecord.scheduled_date.desc())
         .all()
     )
-    changed = any(refresh_collection_record(record) for record in collections)
+    for record in collections:
+        status, delay_minutes = compute_collection_status(record)
+        record.status = status
+        record.delay_minutes = delay_minutes
     latest = collections[0] if collections else None
     status = get_bin_status_from_latest_collection(db_bin, latest)
-    if db_bin.status != status:
-        db_bin.status = status
-        changed = True
-    if changed:
-        db.commit()
-        db.refresh(db_bin)
+    db_bin.status = status
     return db_bin
 
 @router.post("/bins", response_model=schemas.Bin)
