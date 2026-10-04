@@ -2,23 +2,23 @@
 
 import { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
-import { getBins, getAnalytics, getComplaints, updateComplaintStatus, recordCollection, predictRisk } from '@/lib/api';
+import { getBins, getAnalytics, getComplaints, updateComplaintStatus, recordCollection, predictRisk, type AnalyticsSummary, type Bin, type Complaint } from '@/lib/api';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend } from 'recharts';
 import { Trash2, AlertTriangle, CheckCircle2, Clock, MapPin, Activity } from 'lucide-react';
-import { format } from 'date-fns';
 
 const Map = dynamic(() => import('@/components/ui/Map'), { ssr: false });
 
 export default function AdminDashboard() {
-  const [analytics, setAnalytics] = useState<any>(null);
-  const [bins, setBins] = useState<any[]>([]);
-  const [complaints, setComplaints] = useState<any[]>([]);
-  const [notifications, setNotifications] = useState<string[]>([]);
+  const [analytics, setAnalytics] = useState<AnalyticsSummary | null>(null);
+  const [bins, setBins] = useState<Bin[]>([]);
+  const [complaints, setComplaints] = useState<Complaint[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [predictionMessage, setPredictionMessage] = useState('');
 
   const fetchData = async () => {
     try {
+      setError('');
       const [anData, binsData, compData] = await Promise.all([
         getAnalytics(),
         getBins(),
@@ -27,57 +27,32 @@ export default function AdminDashboard() {
       setAnalytics(anData);
       setBins(binsData);
       setComplaints(compData);
-      generateNotifications(binsData, compData);
-    } catch (e) {
-      console.error(e);
+    } catch {
+      setError('Failed to load dashboard data. Please check backend/API configuration.');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchData();
+    void fetchData();
   }, []);
-
-  const generateNotifications = (binsList: any[], compsList: any[]) => {
-    const notifs = [];
-    const highRiskBins = binsList.filter(b => b.status === 'OVERFLOW_RISK');
-    if (highRiskBins.length > 0) {
-      notifs.push(`${highRiskBins.length} bins have a high predicted overflow risk.`);
-    }
-    const missed = binsList.filter(b => b.status === 'MISSED');
-    if (missed.length > 0) {
-      notifs.push(`${missed.length} bins missed their collection schedule.`);
-    }
-    const openComps = compsList.filter(c => c.status === 'OPEN');
-    if (openComps.length > 0) {
-      notifs.push(`There are ${openComps.length} open complaints from residents.`);
-    }
-    setNotifications(notifs);
-  };
 
   const handlePredict = async (id: number) => {
     try {
       const res = await predictRisk(id);
       setPredictionMessage(`Bin ${res.bin_id}: Risk level is ${res.risk_level} (Prob: ${res.risk_probability})`);
-      fetchData();
-    } catch(e) {
+      await fetchData();
+    } catch {
       alert("Error predicting risk.");
     }
   };
 
   const handleRecordCollection = async (binId: number) => {
     try {
-      const now = new Date();
-      await recordCollection({
-        bin_id: binId,
-        scheduled_date: now.toISOString(),
-        scheduled_time: "09:00",
-        actual_collection_date: now.toISOString(),
-        actual_collection_time: format(now, 'HH:mm')
-      });
-      fetchData();
-    } catch (e) {
+      await recordCollection(binId);
+      await fetchData();
+    } catch {
       alert("Error recording collection.");
     }
   };
@@ -85,13 +60,29 @@ export default function AdminDashboard() {
   const handleResolveComplaint = async (id: number) => {
     try {
       await updateComplaintStatus(id, 'RESOLVED');
-      fetchData();
-    } catch (e) {
+      await fetchData();
+    } catch {
       alert("Error updating complaint.");
     }
   };
 
-  if (loading || !analytics) return <div className="p-8 text-center text-slate-500 font-medium">Loading dashboard...</div>;
+  if (loading) return <div className="p-8 text-center text-slate-500 font-medium">Loading dashboard...</div>;
+  if (error) return <div className="p-8 text-center text-red-600 font-medium">{error}</div>;
+  if (!analytics) return <div className="p-8 text-center text-slate-500 font-medium">No dashboard data available.</div>;
+
+  const notifications: string[] = [];
+  const highRiskBins = bins.filter(b => b.status === 'OVERFLOW_RISK');
+  if (highRiskBins.length > 0) {
+    notifications.push(`${highRiskBins.length} bins have a high predicted overflow risk.`);
+  }
+  const missedBins = bins.filter(b => b.status === 'MISSED');
+  if (missedBins.length > 0) {
+    notifications.push(`${missedBins.length} bins missed their collection schedule.`);
+  }
+  const openComps = complaints.filter(c => c.status === 'OPEN');
+  if (openComps.length > 0) {
+    notifications.push(`There are ${openComps.length} open complaints from residents.`);
+  }
 
   const pieData = [
     { name: 'On-Time', value: analytics.on_time_collections, color: '#10b981' },
@@ -140,7 +131,11 @@ export default function AdminDashboard() {
         <div className="lg:col-span-2 bg-white p-6 rounded-2xl shadow-sm border border-slate-100 min-h-[400px] flex flex-col">
           <h2 className="text-lg font-bold mb-4 text-slate-800">Live Map</h2>
           <div className="flex-1 min-h-[350px]">
+            {bins.length > 0 ? (
              <Map bins={bins} onPredict={handlePredict} />
+            ) : (
+             <div className="h-full flex items-center justify-center text-slate-500">No bins available to display on the map.</div>
+            )}
           </div>
         </div>
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col">
@@ -180,7 +175,11 @@ export default function AdminDashboard() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {bins.map(b => (
+                {bins.length === 0 ? (
+                  <tr>
+                    <td className="p-4 text-slate-500" colSpan={5}>No bin records available.</td>
+                  </tr>
+                ) : bins.map(b => (
                   <tr key={b.id} className="hover:bg-slate-50 transition-colors">
                     <td className="p-4 font-medium text-slate-700">{b.name}</td>
                     <td className="p-4 text-slate-600">{b.area}</td>
@@ -241,7 +240,19 @@ export default function AdminDashboard() {
   );
 }
 
-function KPICard({ title, value, icon: Icon, color, bg }: any) {
+function KPICard({
+  title,
+  value,
+  icon: Icon,
+  color,
+  bg
+}: {
+  title: string;
+  value: number;
+  icon: React.ComponentType<{ className?: string }>;
+  color: string;
+  bg: string;
+}) {
   return (
     <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 flex flex-col justify-between hover:shadow-md transition-shadow">
       <div className="flex justify-between items-start mb-4">
