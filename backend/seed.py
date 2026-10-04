@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.database import engine, SessionLocal, Base
 from app.models import GarbageBin, CollectionRecord, Complaint, BinStatus, CollectionStatus, ComplaintStatus
 from app.ml import train_model
+from app.status_utils import utcnow_naive
 
 def seed_db():
     print("Training ML model...")
@@ -63,7 +64,7 @@ def seed_db():
 
     print("Seeding collections...")
     bins = db.query(GarbageBin).all()
-    now = datetime.datetime.utcnow()
+    now = utcnow_naive()
 
     for b in bins:
         for j in range(5, 0, -1):

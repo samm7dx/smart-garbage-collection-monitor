@@ -2,33 +2,35 @@
 
 import { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
-import { getBins, submitComplaint } from '@/lib/api';
+import { getBins, submitComplaint, type Bin } from '@/lib/api';
 import { AlertCircle, CheckCircle2, Clock } from 'lucide-react';
 
 const Map = dynamic(() => import('@/components/ui/Map'), { ssr: false });
 
 export default function ResidentPage() {
-  const [bins, setBins] = useState([]);
+  const [bins, setBins] = useState<Bin[]>([]);
   const [complaintArea, setComplaintArea] = useState('Koramangala');
   const [complaintDesc, setComplaintDesc] = useState('');
   const [binId, setBinId] = useState<number | ''>('');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [message, setMessage] = useState('');
-
-  useEffect(() => {
-    fetchBins();
-  }, []);
 
   const fetchBins = async () => {
     try {
+      setError('');
       const data = await getBins();
       setBins(data);
-    } catch (e) {
-      console.error(e);
+    } catch {
+      setError('Failed to load bins. Please check backend/API configuration.');
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    void fetchBins();
+  }, []);
 
   const handleComplaint = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -38,7 +40,7 @@ export default function ResidentPage() {
       setMessage('Complaint submitted successfully!');
       setComplaintDesc('');
       setBinId('');
-    } catch (e) {
+    } catch {
       setMessage('Error submitting complaint');
     }
   };
@@ -78,7 +80,15 @@ export default function ResidentPage() {
         <div className="lg:col-span-2 bg-white p-4 rounded-2xl shadow-sm border border-slate-100 min-h-[500px] flex flex-col">
           <h2 className="text-xl font-bold mb-4 px-2 text-slate-800">Collection Points Map</h2>
           <div className="flex-1 min-h-[400px]">
-            {!loading && <Map bins={bins} />}
+            {loading ? (
+              <div className="h-full flex items-center justify-center text-slate-500">Loading bins...</div>
+            ) : error ? (
+              <div className="h-full flex items-center justify-center text-red-600">{error}</div>
+            ) : bins.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-slate-500">No bins available.</div>
+            ) : (
+              <Map bins={bins} />
+            )}
           </div>
         </div>
 

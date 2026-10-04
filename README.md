@@ -48,6 +48,17 @@ uvicorn app.main:app --reload --port 8000
 This will set up the database, train the ML model, seed the system with mock data, and start the FastAPI backend on `http://localhost:8000`. 
 Swagger UI is available at `http://localhost:8000/docs`.
 
+Portable (Linux/macOS) equivalent:
+
+```bash
+cd backend
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+python seed.py
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
 ### 2. Frontend Setup
 
 Open a new Windows PowerShell terminal and run:
@@ -58,6 +69,24 @@ npm install
 npm run dev
 ```
 The Next.js application will be available at `http://localhost:3000`.
+
+Portable (Linux/macOS) equivalent:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+### Environment Variables
+
+#### Frontend
+- `NEXT_PUBLIC_API_BASE_URL` (optional): backend API base URL.  
+  Default: `http://localhost:8000/api`
+
+#### Backend
+- `CORS_ORIGINS` (optional): comma-separated allowed origins.  
+  Default: `http://localhost:3000,http://127.0.0.1:3000`
 
 ---
 
